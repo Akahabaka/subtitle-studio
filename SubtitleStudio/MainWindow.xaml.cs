@@ -122,7 +122,7 @@ public partial class MainWindow : Window
         try
         {
             var job = Snapshot(); JobRunner.Validate(job);
-            if (kind == "full" && MessageBox.Show(this, JobRunner.Describe(job) + "\n\n将另存为新文件，继续处理？", "执行前检查", MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK) return;
+            if (kind == "full" && MessageBox.Show(this, JobRunner.Describe(job) + "\n\n输出位置：" + job.Directory + "\n将另存为新文件，继续处理？", "执行前检查", MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK) return;
             cancellation = new(); Settings.IsEnabled = false; StartButton.IsEnabled = false; elapsed.Restart();
             var result = await new JobRunner(engine).Execute(job, kind, cancellation.Token, (phase, p) => Dispatcher.Invoke(() => { Progress.Value = p; Status.Text = $"{phase} · {p:F0}% · 已用时 {elapsed.Elapsed:hh\\:mm\\:ss}"; }));
             Status.Text = "完成 · " + result;
@@ -137,7 +137,16 @@ public partial class MainWindow : Window
     private async void Sample(object sender, RoutedEventArgs e) => await Process("sample");
     private void Cancel(object sender, RoutedEventArgs e) => cancellation?.Cancel();
     private void SaveLog(object sender, RoutedEventArgs e) { var d = new SaveFileDialog { FileName = "字幕工坊日志.txt", Filter = "文本|*.txt" }; if (d.ShowDialog() == true) { try { File.WriteAllText(d.FileName, engine.Log + errorLog); Status.Text = "日志已保存。"; } catch (Exception ex) { Failure(ex); } } }
-    private void ChooseOutput(object sender, RoutedEventArgs e) { var d = new OpenFolderDialog(); if (d.ShowDialog() == true) Destination.Text = d.FolderName; }
+    private void ChooseOutput(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFolderDialog { Title = "选择视频输出文件夹" };
+        if (Directory.Exists(Destination.Text)) dialog.InitialDirectory = Destination.Text;
+        if (dialog.ShowDialog(this) == true)
+        {
+            Destination.Text = dialog.FolderName;
+            Status.Text = "输出位置已设为 " + dialog.FolderName;
+        }
+    }
     private void OpenOutput(object sender, RoutedEventArgs e) { try { if (Directory.Exists(Destination.Text)) System.Diagnostics.Process.Start(new ProcessStartInfo("explorer.exe") { ArgumentList = { Path.GetFullPath(Destination.Text) }, UseShellExecute = true }); } catch (Exception ex) { Failure(ex); } }
     private void ShowText(string title, string text) => new Window { Title = title, Owner = this, Width = 850, Height = 600, Content = new TextBox { Text = text, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(16) } }.Show();
 }
