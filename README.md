@@ -1,5 +1,7 @@
 # 字幕工坊 · Subtitle Studio
 
+[简体中文](README.md) | [English](README.en.md) | [日本語](README.ja.md)
+
 用于 Windows 11 x64 的中文桌面字幕与视频封装工具。文件在本地处理，支持单视频配置与多视频批量队列。
 ~~为拯救广大切片烤肉man和up主而出现！ありがとう、ChatGPTさん！~~
 
