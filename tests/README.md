@@ -24,3 +24,17 @@ dotnet run --project tests/补充验证 -- ./tests ./publish/engines C:/Windows/
 - 补充验证：OTF 附件封装与烧录预览、HLG 实际媒体识别、引擎失败后清理。
 
 这些测试不替代独立播放器人工检查、真实磁盘耗尽和干净 Windows 环境验收。
+
+### 杜比视界回归样本
+
+可从 FFmpeg 官方 FATE 下载小型样本，在仓库根目录执行以下命令。
+
+```powershell
+New-Item -ItemType Directory -Force tests/fixtures/dovi | Out-Null
+foreach ($name in @('dovi-p5.mp4', 'dovi-p7.mp4', 'dovi-p81.mp4', 'dovi-p7-hvce.mp4')) {
+    Invoke-WebRequest ('https://fate-suite.ffmpeg.org/mov/' + $name) -OutFile ('tests/fixtures/dovi/' + $name)
+}
+dotnet run --project tests/杜比视界 -- tests/fixtures/dovi publish/engines
+```
+
+样本和生成文件被 git 忽略。校验值见 docs/验收报告.md。该项目验证实际 MP4 文件中杜比视界配置的识别及烧录前拦截。
