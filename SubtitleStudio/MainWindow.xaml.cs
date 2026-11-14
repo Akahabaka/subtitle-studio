@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -14,6 +14,7 @@ public partial class MainWindow : Window
     private readonly MediaEngine engine = new(Path.Combine(AppContext.BaseDirectory, "engines"));
     private readonly ObservableCollection<SubtitleSource> subtitles = [];
     private readonly List<string> fonts = [];
+    private readonly ObservableCollection<QueueEntry> queue = [];
     private MediaInfo? media;
     private CancellationTokenSource? cancellation;
     private readonly Stopwatch elapsed = new();
@@ -21,10 +22,17 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent(); Subtitles.ItemsSource = subtitles;
-        Destination.Text = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+        Queue.ItemsSource = queue;
+        var saved = UserPreferences.Load(UserPreferences.FilePath);
+        Destination.Text = saved.Destination ?? Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+        Mode.SelectedIndex = Math.Clamp(saved.Mode, 0, 2);
+        if (Mode.SelectedIndex == 0) Container.SelectedIndex = Math.Clamp(saved.Container, 0, 1);
+        FontName.Text = saved.Font ?? "Microsoft YaHei";
+        FontSizeBox.Text = int.TryParse(saved.FontSize, out var savedSize) && savedSize is >= 6 and <= 200 ? saved.FontSize : "24";
+        Alignment.SelectedIndex = Math.Clamp(saved.Alignment, 0, 2);
         ModeChanged(this, null!);
         Loaded += (_, _) => { if (engine.Missing.Length > 0) Status.Text = "缺少处理引擎：" + string.Join("、", engine.Missing) + "。请完整解压软件包。"; };
-        Closing += (_, e) => { if (cancellation != null) { e.Cancel = true; cancellation.Cancel(); Status.Text = "正在取消任务，请稍后关闭窗口。"; } };
+        Closing += (_, e) => { if (cancellation != null) { e.Cancel = true; cancellation.Cancel(); Status.Text = "正在取消任务，请稍后关闭窗口。"; } else SavePreferences(); };
     }
     private async Task LoadVideo(string path)
     {
@@ -49,7 +57,7 @@ public partial class MainWindow : Window
     {
         if (cancellation != null || e.Data.GetData(DataFormats.FileDrop) is not string[] paths) return;
         var videos = paths.Where(p => Path.GetExtension(p).ToLowerInvariant() is ".mp4" or ".mkv").ToArray();
-        if (videos.Length > 1) { Status.Text = "一次只处理一个视频，请只拖入一份视频。"; return; }
+        if (videos.Length > 1) { await ImportBatch(videos); return; }
         if (videos.Length == 1) await LoadVideo(videos[0]);
         foreach (var p in paths)
         {
@@ -80,14 +88,14 @@ public partial class MainWindow : Window
             object? source = Mode.SelectedIndex == 2 ? BurnSubtitle.SelectedItem : Subtitles.SelectedItem;
             source ??= Tracks.SelectedItem is MediaTrack { Type: "subtitle" } t ? t : subtitles.FirstOrDefault();
             if (source == null) throw new IOException("请选中一份外部或已有字幕。");
-            cancellation = new(); Settings.IsEnabled = false; StartButton.IsEnabled = false;
+            cancellation = new(); Settings.IsEnabled = false; StartButton.IsEnabled = false; BatchStartButton.IsEnabled = false;
             Status.Text = "正在检查字幕文字、字体引用和源视频字体附件…";
             var message = await SubtitleInspector.Inspect(engine, media, source, fonts, cancellation.Token);
             ShowText("字幕文字与字体检查", message);
             Status.Text = "字幕与字体检查完成，可补充缺失字体。";
         }
         catch (Exception ex) { Failure(ex); }
-        finally { cancellation?.Dispose(); cancellation = null; Settings.IsEnabled = true; StartButton.IsEnabled = true; }
+        finally { cancellation?.Dispose(); cancellation = null; Settings.IsEnabled = true; StartButton.IsEnabled = true; BatchStartButton.IsEnabled = true; }
     }
     private void ModeChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -121,15 +129,93 @@ public partial class MainWindow : Window
         if (cancellation != null) return;
         try
         {
-            var job = Snapshot(); JobRunner.Validate(job);
+            var job = Snapshot(); JobRunner.Validate(job); SavePreferences();
             if (kind == "full" && MessageBox.Show(this, JobRunner.Describe(job) + "\n\n输出位置：" + job.Directory + "\n将另存为新文件，继续处理？", "执行前检查", MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK) return;
-            cancellation = new(); Settings.IsEnabled = false; StartButton.IsEnabled = false; elapsed.Restart();
+            cancellation = new(); Settings.IsEnabled = false; StartButton.IsEnabled = false; BatchStartButton.IsEnabled = false; elapsed.Restart();
             var result = await new JobRunner(engine).Execute(job, kind, cancellation.Token, (phase, p) => Dispatcher.Invoke(() => { Progress.Value = p; Status.Text = $"{phase} · {p:F0}% · 已用时 {elapsed.Elapsed:hh\\:mm\\:ss}"; }));
             Status.Text = "完成 · " + result;
             if (kind == "preview") { var bitmap = new BitmapImage(); bitmap.BeginInit(); bitmap.CacheOption = BitmapCacheOption.OnLoad; bitmap.UriSource = new Uri(result); bitmap.EndInit(); new Window { Title = "字幕画面预览", Owner = this, Width = 960, Height = 620, Content = new Image { Source = bitmap, Stretch = Stretch.Uniform } }.Show(); }
         }
         catch (Exception ex) { Failure(ex); }
-        finally { elapsed.Stop(); cancellation?.Dispose(); cancellation = null; Settings.IsEnabled = true; StartButton.IsEnabled = true; }
+        finally { elapsed.Stop(); cancellation?.Dispose(); cancellation = null; Settings.IsEnabled = true; StartButton.IsEnabled = true; BatchStartButton.IsEnabled = true; }
+    }
+    private void SavePreferences()
+    {
+        try { new UserPreferences { Mode = Mode.SelectedIndex, Container = Container.SelectedIndex, Destination = Destination.Text,
+            Font = FontName.Text, FontSize = FontSizeBox.Text, Alignment = Alignment.SelectedIndex }.Save(UserPreferences.FilePath); }
+        catch (Exception ex) { errorLog += "保存设置失败：" + ex + "\n"; Status.Text = "无法保存设置：" + ex.Message; }
+    }
+    private void AddCurrent(object sender, RoutedEventArgs e)
+    {
+        if (cancellation != null) return;
+        try { var job = Snapshot(); JobRunner.Validate(job); queue.Add(new(job.Media.Path, BatchQueue.Freeze(job))); SavePreferences(); Status.Text = "已将当前配置加入队列，可继续配置下一个视频。"; }
+        catch (Exception ex) { Failure(ex); }
+    }
+    private async void ChooseBatch(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog { Filter = "视频|*.mkv;*.mp4", Multiselect = true };
+        if (dialog.ShowDialog(this) == true) await ImportBatch(dialog.FileNames);
+    }
+    private async Task ImportBatch(string[] paths)
+    {
+        if (cancellation != null) return;
+        try
+        {
+            if (!int.TryParse(FontSizeBox.Text, out var size) || size is < 6 or > 200) throw new IOException("字号范围为 6–200。");
+            var destination = Path.GetFullPath(Destination.Text);
+            var operation = (Operation)Mode.SelectedIndex;
+            var container = Container.SelectedIndex == 0 ? "mkv" : "mp4";
+            var font = FontName.Text; var alignment = Alignment.SelectedIndex switch { 1 => 8, 2 => 5, _ => 2 };
+            cancellation = new(); Settings.IsEnabled = false; StartButton.IsEnabled = false; BatchStartButton.IsEnabled = false;
+            SavePreferences();
+            foreach (var path in paths)
+            {
+                cancellation.Token.ThrowIfCancellationRequested();
+                Status.Text = "正在检查批量文件：" + Path.GetFileName(path);
+                try
+                {
+                    var input = await engine.Probe(path, cancellation.Token);
+                    var job = BatchQueue.Create(input, operation, container, destination, font, size, alignment, fonts.ToArray());
+                    queue.Add(new(path, job));
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex) { queue.Add(new(path, null, "需单独配置 · " + ex.Message)); errorLog += path + "\n" + ex + "\n"; }
+            }
+            Status.Text = "批量检查完成。请查看队列；需要单独配置的文件不会执行。";
+        }
+        catch (Exception ex) { Failure(ex); }
+        finally { cancellation?.Dispose(); cancellation = null; Settings.IsEnabled = true; StartButton.IsEnabled = true; BatchStartButton.IsEnabled = true; }
+    }
+    private void RemoveQueue(object sender, RoutedEventArgs e) { if (Queue.SelectedItem is QueueEntry item) queue.Remove(item); }
+    private void ClearCompleted(object sender, RoutedEventArgs e) { foreach (var item in queue.Where(x => x.Finished).ToArray()) queue.Remove(item); }
+    private void InspectQueue(object sender, RoutedEventArgs e)
+    {
+        if (Queue.SelectedItem is QueueEntry { Job: { } job }) ShowText("队列任务设置", job.Media.Path + "\n\n" + JobRunner.Describe(job) + "\n\n输出位置：" + job.Directory);
+    }
+    private async void StartBatch(object sender, RoutedEventArgs e)
+    {
+        if (cancellation != null) return;
+        var pending = queue.Where(x => x.Job != null && !x.Finished).ToArray();
+        if (pending.Length == 0) { Status.Text = "请先添加可执行的队列任务。"; return; }
+        if (MessageBox.Show(this, $"将依次处理 {pending.Length} 个任务。失败后继续下一个；取消会停止整个队列。已完成的任务不会重复执行。\n\n" +
+            string.Join("\n", pending.Take(15).Select(x => Path.GetFileName(x.Source) + " · " + x.OperationName + " → " + x.Destination)) +
+            (pending.Length > 15 ? $"\n……另有 {pending.Length - 15} 个任务，请在队列中核对。" : "") +
+            "\n\n字幕烧录会重新编码视频。每个任务使用加入队列时的设置，可通过“查看任务设置”核对。", "批量执行前检查", MessageBoxButton.OKCancel) != MessageBoxResult.OK) return;
+        cancellation = new(); Settings.IsEnabled = false; StartButton.IsEnabled = false; BatchStartButton.IsEnabled = false; elapsed.Restart();
+        try
+        {
+            int number = 0;
+            await BatchQueue.Run(pending, async (job, token) =>
+            {
+                number++;
+                try { return await new JobRunner(engine).Execute(job, "full", token, (phase, progress) => Dispatcher.Invoke(() =>
+                    { Progress.Value = progress; Status.Text = $"队列 {number}/{pending.Length} · {Path.GetFileName(job.Media.Path)} · {phase} {progress:F0}% · {elapsed.Elapsed:hh\\:mm\\:ss}"; })); }
+                catch (Exception ex) { errorLog += job.Media.Path + "\n" + ex + "\n"; throw; }
+            }, cancellation.Token);
+            Status.Text = $"{(cancellation.IsCancellationRequested ? "队列已停止" : "队列执行结束")} · 本次完成 {pending.Count(x => x.Finished)}/{pending.Length}。未完成任务可重试，详情见队列。";
+        }
+        catch (Exception ex) { Failure(ex); }
+        finally { elapsed.Stop(); cancellation.Dispose(); cancellation = null; Settings.IsEnabled = true; StartButton.IsEnabled = true; BatchStartButton.IsEnabled = true; }
     }
     private void Failure(Exception ex) { Status.Text = ex is OperationCanceledException ? "已取消，可重新开始。" : "失败 · " + ex.Message; errorLog += ex + "\n"; }
     private async void Start(object sender, RoutedEventArgs e) => await Process("full");

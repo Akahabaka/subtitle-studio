@@ -38,3 +38,11 @@ dotnet run --project tests/杜比视界 -- tests/fixtures/dovi publish/engines
 ```
 
 样本和生成文件被 git 忽略。校验值见 docs/验收报告.md。该项目验证实际 MP4 文件中杜比视界配置的识别及烧录前拦截。
+
+### 批量与设置
+
+```powershell
+dotnet run --project tests/批量与设置 -- tests/fixtures publish/engines tests/batch-output
+```
+
+覆盖设置保存/恢复/损坏回退、任务快照隔离、轨道身份映射、同名字幕及歧义、HDR 和容器不兼容拦截、真实三种任务输出与严格解码、失败继续、取消后保留待处理任务、重试跳过已完成任务。

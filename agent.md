@@ -2,7 +2,7 @@
 
 ## 产品目标
 
-Windows 11 x64、C# / .NET 10 / WPF 的中文桌面工具，一次处理一个本地视频。主要功能是无损换封装、多字幕 MKV 内封和高画质 SDR 字幕烧录。保持对初学者友好，避免在界面里要求用户填写 FFmpeg 命令。
+Windows 11 x64、C# / .NET 10 / WPF 的中文桌面工具，支持批量队列，按顺序逐个处理本地视频。主要功能是无损换封装、多字幕 MKV 内封和高画质 SDR 字幕烧录。保持对初学者友好，避免在界面里要求用户填写 FFmpeg 命令。
 
 ## 不可破坏的行为
 
@@ -20,6 +20,8 @@ Windows 11 x64、C# / .NET 10 / WPF 的中文桌面工具，一次处理一个�
 - `SubtitleStudio/JobRunner.cs`：任务快照的校验和执行；MKVToolNix 与 FFmpeg 参数；输出验证。
 - `SubtitleStudio/SubtitleInspector.cs`：文字预览、ASS 引用字体、系统/新增/已有附件字体匹配。
 - `SubtitleStudio/MainWindow.xaml(.cs)`：界面、选择状态、进度和取消。处理期间锁定设置。
+- `BatchQueue.cs`：任务深拷贝、同名字幕匹配、顺序执行、失败继续和取消/重试；不要按索引盲目复用其他视频的轨道。
+- `UserPreferences.cs`：本地 JSON 设置、原子替换与损坏回退，不保存媒体历史和任务队列。
 - `tests/`：使用真实引擎的集成测试。素材由脚本生成，字体取本机可用文件。
 
 ## 容易出错的地方
