@@ -1,0 +1,18 @@
+字幕工坊 0.9.0 验收候选版 / Windows 11 x64
+
+应用：C# / .NET 10 / WPF；源码随交付提供，使用 MIT 许可证。
+运行库：Microsoft.NETCore.App 10.0.15、Microsoft.WindowsDesktop.App 10.0.15，自包含发布。
+引擎：FFmpeg / FFprobe 9.0.2 essentials，Gyan Windows 静态构建，GPLv3。
+      包含 libass、libx264 等支持；完整构建配置见 FFmpeg-build-README.txt 及 ffmpeg -version。
+      https://www.gyan.dev/ffmpeg/builds/
+      FFmpeg 对应源版本 https://github.com/FFmpeg/FFmpeg/commit/946fcce07b
+      https://ffmpeg.org/download.html
+引擎：MKVToolNix 103.0 x64，GPLv2；作者 Moritz Bunkus。
+      https://mkvtoolnix.download/downloads.html
+      源码 https://mkvtoolnix.download/sources/
+运行库源码及说明：
+      https://github.com/dotnet/runtime
+      https://github.com/dotnet/wpf
+
+licenses 文件夹保留组件原许可证和第三方声明。各组件以独立进程运行，适用各自许可证。
+包内没有系统字体文件。用户添加字体时请遵守该字体许可证。

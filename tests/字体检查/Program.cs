@@ -1,0 +1,13 @@
+using SubtitleStudio;
+using System.IO;
+var root=Path.GetFullPath(args[0]);var engine=new MediaEngine(Path.GetFullPath(args[1]));
+var media=await engine.Probe(Path.Combine(root,"edge-output","nonzero_输出.mkv"),default);
+var srt=media.Tracks.First(t=>t.Type=="subtitle");
+var internalReport=await SubtitleInspector.Inspect(engine,media,srt,[],default);
+if(!internalReport.Contains("中文字幕测试"))throw new Exception("已有字幕文字预览失败");
+var path=Path.Combine(root,"fixtures","font-check.ass");
+File.WriteAllText(path,File.ReadAllText(Path.Combine(root,"fixtures","样式.ass")).Replace("Microsoft YaHei","Agency FB")+"\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,{\\fnMissingFont_583170}测试\n");
+var report=await SubtitleInspector.Inspect(engine,media,new SubtitleSource{Path=path},[],default);
+if(!report.Contains("缺失字体：MissingFont_583170") || report.Contains("仅在本机可用，分享 MKV 时建议添加字体文件：Agency FB"))throw new Exception("字体附件或缺失字体识别失败\n"+report);
+File.WriteAllText(Path.Combine(root,"font-inspection-result.txt"),report);
+Console.WriteLine("PASS 已有字幕文字预览、MKV 字体附件名称、缺失字体和行内字体引用");
