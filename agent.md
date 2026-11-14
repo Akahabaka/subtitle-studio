@@ -50,3 +50,11 @@ dotnet build SubtitleStudio/SubtitleStudio.csproj -c Release
 - 文档区分已测试、推断和未验证。当前未完成项见 `docs/验收报告.md`，不得无证据改成“全部通过”。
 - 发布候选包前验证压缩包里的运行库、引擎、程序和说明文件齐全，校验源码与二进制对应关系。
 - 发布新版本时更新测试记录与版本说明；保留现有用户文件，不执行无关清理。
+
+发布后必须检查包内运行库完整性：
+
+```powershell
+./scripts/Verify-Runtime.ps1 -Directory publish
+```
+
+脚本验证第三方运行库 DLL 的 Authenticode 签名，不要求本项目生成的应用 DLL 具有代码签名。发布包应从验证通过的目录生成，压缩后另行校验 SHA-256。
