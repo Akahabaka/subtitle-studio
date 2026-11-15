@@ -46,3 +46,11 @@ dotnet run --project tests/批量与设置 -- tests/fixtures publish/engines tes
 ```
 
 覆盖设置保存/恢复/损坏回退、任务快照隔离、轨道身份映射、同名字幕及歧义、HDR 和容器不兼容拦截、真实三种任务输出与严格解码、失败继续、取消后保留待处理任务、重试跳过已完成任务。
+
+### 旋转与所选轨道时间范围
+
+```powershell
+dotnet run --project tests/媒体校验 -- publish/engines tests/media-validation-output
+```
+
+自动生成 3 秒视频、3/7 秒音轨、结束于第 6 秒的字幕，以及带 90°/180°/270° 显示矩阵的视频。验证取消长音轨后换封装、长字幕内封、旋转素材的预览/试输出/正式烧录、输出尺寸和严格解码，以及文件名后缀长度预留。

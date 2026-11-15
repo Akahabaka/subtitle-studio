@@ -26,8 +26,10 @@ public sealed class JobRunner(MediaEngine engine)
         if (reserved is "CON" or "PRN" or "AUX" or "NUL" ||
             (reserved.Length == 4 && (reserved.StartsWith("COM") || reserved.StartsWith("LPT")) && "123456789¹²³".Contains(reserved[3])))
             throw new IOException("输出文件名是 Windows 保留名称，请换一个名称。");
-        if (name.Length + job.Container.Length + 1 > 255)
-            throw new IOException("输出文件名过长，请缩短名称。");
+        // Reserve the longest output suffix and an Int32 collision counter.
+        const int reservedSuffixLength = 7 + 11;
+        if (name.Length + reservedSuffixLength + job.Container.Length + 1 > 255)
+            throw new IOException("输出文件名过长，请缩短名称，为预览、试输出和重名编号预留空间。");
         return name;
     }
 
@@ -204,11 +206,47 @@ public sealed class JobRunner(MediaEngine engine)
                 var result = await engine.Probe(temporary, token);
                 if (!result.Tracks.Any(t => t.Type == "video") || result.Duration <= 0) throw new IOException("输出验证失败，未生成正式文件。");
                 if (j.Operation != Operation.Burn && result.Tracks.Count != j.Tracks.Count + (j.Operation == Operation.Mux ? j.Subtitles.Count + j.Fonts.Count : 0)) throw new IOException("输出轨道数量不符，未生成正式文件。");
-                var expectedDuration = kind == "sample" ? Math.Min(10, j.Media.Duration - j.Position) : j.Media.Duration;
-                if (Math.Abs(result.Duration - expectedDuration) > Math.Max(1, expectedDuration * 0.001)) throw new IOException("输出时长与预期不符，未生成正式文件。");
-                var inputVideo = j.Tracks.First(t => t.Type == "video");
-                var outputVideo = result.Tracks.First(t => t.Type == "video");
-                if (inputVideo.Width != outputVideo.Width || inputVideo.Height != outputVideo.Height) throw new IOException("输出分辨率与源文件不符。");
+                var sourceTimes = await engine.TrackTimes(j.Media.Path, token);
+                var resultTimes = await engine.TrackTimes(temporary, token);
+                var selected = j.Operation == Operation.Burn
+                    ? j.Tracks.Where(t => t.Type == "video").Concat(j.Audio == null ? [] : new[] { j.Audio }).ToArray()
+                    : j.Tracks.Where(t => t.Type is "video" or "audio").ToArray();
+                double? commonShift = null;
+                foreach (var type in new[] { "video", "audio" })
+                {
+                    var inputs = selected.Where(t => t.Type == type &&
+                        !(kind == "sample" && type == "audio" && sourceTimes.TryGetValue(t.Index, out var range) &&
+                          (range.End <= j.Media.Start + j.Position || range.Start >= j.Media.Start + j.Position + 10))).ToArray();
+                    var outputs = result.Tracks.Where(t => t.Type == type).ToArray();
+                    if (inputs.Length != outputs.Length) throw new IOException("输出音视频轨道数量不符。");
+                    for (int i = 0; i < inputs.Length; i++)
+                    {
+                        if (!sourceTimes.TryGetValue(inputs[i].Index, out var before) || !resultTimes.TryGetValue(outputs[i].Index, out var after))
+                            throw new IOException("无法验证音视频轨道的时间范围。");
+                        if (kind == "sample")
+                        {
+                            before.Start = Math.Max(before.Start, j.Media.Start + j.Position);
+                            before.End = Math.Min(before.End, j.Media.Start + j.Position + 10);
+                        }
+                        var expected = before.End - before.Start;
+                        var tolerance = Math.Max(0.25, expected * 0.001);
+                        if (Math.Abs((after.End - after.Start) - expected) > tolerance)
+                            throw new IOException("输出音视频轨道时长与所选源轨道不符。");
+                        var shift = after.Start - before.Start;
+                        commonShift ??= shift;
+                        if (Math.Abs(shift - commonShift.Value) > 0.25)
+                            throw new IOException("输出音视频轨道的相对起始时间不符。");
+                        if (type == "video")
+                        {
+                            var angle = ((inputs[i].Rotation % 360) + 360) % 360;
+                            var swap = j.Operation == Operation.Burn && (Math.Abs(angle - 90) < 1 || Math.Abs(angle - 270) < 1);
+                            var width = swap ? inputs[i].Height : inputs[i].Width;
+                            var height = swap ? inputs[i].Width : inputs[i].Height;
+                            if (outputs[i].Width != width || outputs[i].Height != height)
+                                throw new IOException("输出分辨率与源文件显示方向不符。");
+                        }
+                    }
+                }
                 if (j.Operation != Operation.Burn)
                 {
                     foreach (var type in new[] { "video", "audio" })

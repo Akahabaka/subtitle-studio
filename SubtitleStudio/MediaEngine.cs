@@ -16,6 +16,7 @@ public sealed class MediaTrack
     public string Language { get; set; } = "und";
     public bool Default { get; set; }
     public double StartTime { get; set; }
+    public double Rotation { get; set; }
     public int Width { get; set; }
     public int Height { get; set; }
     public string Compatibility { get; set; } = "";
@@ -42,7 +43,7 @@ public sealed class MediaEngine(string directory)
         .Where(n => !File.Exists(System.IO.Path.Combine(directory, n + ".exe"))).ToArray();
 
     public async Task<string> Run(string name, IEnumerable<string> arguments, CancellationToken token,
-        Action<string>? lineReceived = null, string? workingDirectory = null)
+        Action<string>? lineReceived = null, string? workingDirectory = null, bool captureOutput = true)
     {
         var args = arguments.ToArray();
         var info = new ProcessStartInfo(System.IO.Path.Combine(directory, name + ".exe"))
@@ -61,7 +62,7 @@ public sealed class MediaEngine(string directory)
         {
             while (await reader.ReadLineAsync() is { } line)
             {
-                target.AppendLine(line);
+                if (captureOutput || !ReferenceEquals(target, output)) target.AppendLine(line);
                 lineReceived?.Invoke(line);
             }
         }
@@ -91,6 +92,9 @@ public sealed class MediaEngine(string directory)
             if (s.TryGetProperty("disposition", out var disp)) t.Default = Number(disp, "default") == 1;
             t.StartTime = Number(s, "start_time");
             t.Width = (int)Number(s, "width"); t.Height = (int)Number(s, "height");
+            if (s.TryGetProperty("side_data_list", out var sideData))
+                foreach (var side in sideData.EnumerateArray())
+                    if (side.TryGetProperty("rotation", out _)) t.Rotation = Number(side, "rotation");
             tracks.Add(t);
             if (t.Type == "video") hdr |= Text(s, "color_transfer") is "smpte2084" or "arib-std-b67" || s.ToString().Contains("DOVI", StringComparison.OrdinalIgnoreCase) || s.ToString().Contains("Dolby Vision", StringComparison.OrdinalIgnoreCase);
         }
@@ -115,6 +119,22 @@ public sealed class MediaEngine(string directory)
             if (end > start) duration = end - start;
         }
         return new(path, Math.Max(0, duration), start, hdr, tracks);
+    }
+
+    public async Task<Dictionary<int, (double Start, double End)>> TrackTimes(string path, CancellationToken token)
+    {
+        var ranges = new Dictionary<int, (double Start, double End)>();
+        await Run("ffprobe", ["-v", "error", "-show_packets", "-show_entries", "packet=stream_index,pts_time,duration_time", "-of", "compact=p=0:nk=0", path], token, line =>
+        {
+            var fields = line.Split('|').Select(x => x.Split('=', 2)).Where(x => x.Length == 2).ToDictionary(x => x[0], x => x[1]);
+            if (!fields.TryGetValue("stream_index", out var indexText) || !int.TryParse(indexText, out var index) ||
+                !fields.TryGetValue("pts_time", out var ptsText) || !double.TryParse(ptsText, NumberStyles.Float, CultureInfo.InvariantCulture, out var pts)) return;
+            fields.TryGetValue("duration_time", out var durationText);
+            double.TryParse(durationText, NumberStyles.Float, CultureInfo.InvariantCulture, out var duration);
+            var previous = ranges.GetValueOrDefault(index, (pts, pts));
+            ranges[index] = (Math.Min(previous.Item1, pts), Math.Max(previous.Item2, pts + duration));
+        }, captureOutput: false);
+        return ranges;
     }
 
     public static string Mp4Compatibility(MediaTrack t) => t.Type switch

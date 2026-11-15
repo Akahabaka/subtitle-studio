@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -45,6 +45,7 @@ public partial class MainWindow : Window
             if (!candidate.Tracks.Any(t => t.Type == "video")) throw new IOException("文件中没有视频轨道。");
             media = candidate; Video.Text = path; Tracks.ItemsSource = media.Tracks;
             OutputName.Text = Path.GetFileNameWithoutExtension(path) + "_output";
+            Position.Text = "0";
             MediaSummary.Text = $"时长 {TimeSpan.FromSeconds(media.Duration):hh\\:mm\\:ss} · {media.Tracks.Count} 条轨道 / 附件 · {(media.IsHdr ? "HDR / HLG / 杜比视界，不能烧录" : "SDR")}";
             Audio.ItemsSource = media.Tracks.Where(t => t.Type == "audio").ToArray();
             Audio.SelectedItem = media.Tracks.FirstOrDefault(t => t.Type == "audio" && t.Default) ?? media.Tracks.FirstOrDefault(t => t.Type == "audio");
@@ -115,16 +116,17 @@ public partial class MainWindow : Window
         foreach (var t in media.Tracks)
         {
             t.Compatibility = Mode.SelectedIndex == 2 ? "烧录使用下方字幕、音轨设置" : Container.SelectedIndex == 1 ? MediaEngine.Mp4Compatibility(t) : MediaEngine.MkvCompatibility(t);
-            if (defaults) t.Selected = Mode.SelectedIndex == 2 || t.Compatibility.StartsWith("可");
+            if (defaults) t.Selected = true;
         }
         Tracks.Items.Refresh();
     }
-    private Job Snapshot()
+    private Job Snapshot(string kind = "full")
     {
         Tracks.CommitEdit(); Tracks.CommitEdit(DataGridEditingUnit.Row, true); Subtitles.CommitEdit(); Subtitles.CommitEdit(DataGridEditingUnit.Row, true);
         if (media == null) throw new IOException("请先选择视频。");
         if (!int.TryParse(FontSizeBox.Text, out var size) || size < 6 || size > 200) throw new IOException("字号范围为 6–200。");
-        if (!double.TryParse(Position.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var pos) || pos < 0 || pos >= media.Duration) throw new IOException("时间点需在视频时长范围内，以秒为单位。");
+        double pos = 0;
+        if (kind is "preview" or "sample" && (!double.TryParse(Position.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out pos) || !double.IsFinite(pos) || pos < 0 || pos >= media.Duration)) throw new IOException("时间点需在视频时长范围内，以秒为单位。");
         return new(media, (Operation)Mode.SelectedIndex, Container.SelectedIndex == 0 ? "mkv" : "mp4", Path.GetFullPath(Destination.Text), media.Tracks.Where(t => t.Selected).ToArray(), subtitles.Where(s => s.Selected).ToArray(), fonts.ToArray(), BurnSubtitle.SelectedItem, Audio.SelectedItem as MediaTrack, FontName.Text, size, Alignment.SelectedIndex switch { 1 => 8, 2 => 5, _ => 2 }, pos) { OutputName = OutputName.Text };
     }
     private async Task Process(string kind)
@@ -132,7 +134,7 @@ public partial class MainWindow : Window
         if (cancellation != null) return;
         try
         {
-            var job = Snapshot(); JobRunner.Validate(job); SavePreferences();
+            var job = Snapshot(kind); JobRunner.Validate(job); SavePreferences();
             if (kind == "full" && MessageBox.Show(this, JobRunner.Describe(job) + "\n\n输出文件：" + Path.Combine(job.Directory, JobRunner.OutputBaseName(job) + "." + job.Container) + "\n同名时自动编号另存，继续处理？", "执行前检查", MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK) return;
             cancellation = new(); Settings.IsEnabled = false; StartButton.IsEnabled = false; BatchStartButton.IsEnabled = false; elapsed.Restart();
             var result = await new JobRunner(engine).Execute(job, kind, cancellation.Token, (phase, p) => Dispatcher.Invoke(() => { Progress.Value = p; Status.Text = $"{phase} · {p:F0}% · 已用时 {elapsed.Elapsed:hh\\:mm\\:ss}"; }));
