@@ -13,7 +13,18 @@ File.Copy(Path.Combine(fixtures, "中文 空格 & 视频.mp4"), input, true);
 File.Copy(Path.Combine(fixtures, "样式.ass"), Path.ChangeExtension(input, ".ass"), true);
 var media = await engine.Probe(input, default);
 Job Make(Operation op) => BatchQueue.Create(media, op, "mkv", output, "Microsoft YaHei", 24, 2, []);
-var remux = Make(Operation.Remux); var mux = Make(Operation.Mux); var burn = Make(Operation.Burn);
+var remux = Make(Operation.Remux);
+var mux = Make(Operation.Mux) with { OutputName = "自定义 内封 & 字幕" };
+var burn = Make(Operation.Burn) with { OutputName = "自定义 烧录 & 字幕" };
+Check(JobRunner.OutputBaseName(remux) == "批量 中文_output", "default output name");
+Check(JobRunner.OutputBaseName(remux with { OutputName = " " }) == "批量 中文_output", "empty output name fallback");
+Check(BatchQueue.Freeze(mux).OutputName == mux.OutputName, "queued output name preserved");
+foreach (var invalidName in new[] { "../escape", "bad:name", "CON", "LPT1.txt", "name.", "name ", new string('a', 255) })
+{
+    try { JobRunner.Validate(remux with { OutputName = invalidName }); throw new Exception("Invalid name accepted: " + invalidName); }
+    catch (IOException) { }
+}
+Console.WriteLine("PASS invalid output names blocked");
 media.Tracks[0].Name = "changed after enqueue";
 Check(remux.Media.Tracks[0].Name != media.Tracks[0].Name && remux.Tracks.All(t => remux.Media.Tracks.Contains(t)), "snapshot isolation and track identity");
 try { BatchQueue.Create(media with { IsHdr = true }, Operation.Burn, "mp4", output, "Microsoft YaHei", 24, 2, []); throw new Exception("HDR accepted"); } catch (IOException ex) { Check(ex.Message.Contains("HDR"), "HDR batch burning blocked"); }
@@ -26,8 +37,18 @@ try { BatchQueue.Create(media with { IsHdr = true }, Operation.Burn, "mp4", outp
 var broken = remux with { Media = remux.Media with { Path = Path.Combine(output, "missing.mp4") } };
 var entries = new[] { new QueueEntry("broken", broken), new QueueEntry("remux", remux), new QueueEntry("mux", mux), new QueueEntry("burn", burn) };
 var runner = new JobRunner(engine);
+var existingPath = Path.Combine(output, mux.OutputName + ".mkv");
+File.WriteAllText(existingPath, "keep existing file");
 await BatchQueue.Run(entries, (j, t) => runner.Execute(j, "full", t, (_, _) => {}), default);
 Check(!entries[0].Finished && entries.Skip(1).All(e => e.Finished), "real remux mux burn continue after failure");
+Check(Path.GetFileName(entries[1].State[5..]).StartsWith("批量 中文_output"), "default name reaches output");
+Check(Path.GetFileName(entries[2].State[5..]).StartsWith(mux.OutputName + "_"), "custom name auto numbering");
+Check(Path.GetFileName(entries[3].State[5..]).StartsWith(burn.OutputName), "custom burn name reaches output");
+Check(File.ReadAllText(existingPath) == "keep existing file", "existing file preserved");
+var preview = await runner.Execute(burn, "preview", default, (_, _) => {});
+var sample = await runner.Execute(burn, "sample", default, (_, _) => {});
+Check(Path.GetFileName(preview).StartsWith(burn.OutputName + "_预览"), "custom preview name");
+Check(Path.GetFileName(sample).StartsWith(burn.OutputName + "_10秒试输出"), "custom sample name");
 foreach(var entry in entries.Skip(1)) {
  var path = entry.State[5..];
  await engine.Run("ffmpeg", ["-v", "error", "-xerror", "-i", path, "-map", "0:v", "-map", "0:a?", "-f", "null", "-"], default);

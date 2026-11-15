@@ -10,6 +10,7 @@ public sealed class QueueEntry(string source, Job? job, string state = "待处�
     public Job? Job { get; } = job;
     public string OperationName => Job?.Operation switch { Operation.Remux => "无损换封装", Operation.Mux => "字幕内封", Operation.Burn => "字幕烧录", _ => "未加入" };
     public string Destination => Job?.Directory ?? "";
+    public string OutputFileName => Job == null ? "" : JobRunner.OutputBaseName(Job) + "." + Job.Container;
     private string state = state;
     public string State { get => state; set { state = value; PropertyChanged?.Invoke(this, new(nameof(State))); } }
     public bool Finished { get; set; }

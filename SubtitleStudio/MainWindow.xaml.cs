@@ -44,6 +44,7 @@ public partial class MainWindow : Window
             var candidate = await engine.Probe(path, cancellation.Token);
             if (!candidate.Tracks.Any(t => t.Type == "video")) throw new IOException("文件中没有视频轨道。");
             media = candidate; Video.Text = path; Tracks.ItemsSource = media.Tracks;
+            OutputName.Text = Path.GetFileNameWithoutExtension(path) + "_output";
             MediaSummary.Text = $"时长 {TimeSpan.FromSeconds(media.Duration):hh\\:mm\\:ss} · {media.Tracks.Count} 条轨道 / 附件 · {(media.IsHdr ? "HDR / HLG / 杜比视界，不能烧录" : "SDR")}";
             Audio.ItemsSource = media.Tracks.Where(t => t.Type == "audio").ToArray();
             Audio.SelectedItem = media.Tracks.FirstOrDefault(t => t.Type == "audio" && t.Default) ?? media.Tracks.FirstOrDefault(t => t.Type == "audio");
@@ -99,11 +100,13 @@ public partial class MainWindow : Window
     }
     private void ModeChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (Container == null || BurnPanel == null) return;
+        if (Container == null || BurnPanel == null || SubtitlePanel == null || OutputExtension == null) return;
         Container.IsEnabled = Mode.SelectedIndex == 0;
         if (Mode.SelectedIndex == 1) Container.SelectedIndex = 0;
         if (Mode.SelectedIndex == 2) Container.SelectedIndex = 1;
         BurnPanel.Visibility = Mode.SelectedIndex == 2 ? Visibility.Visible : Visibility.Collapsed;
+        SubtitlePanel.Visibility = Mode.SelectedIndex is 1 or 2 ? Visibility.Visible : Visibility.Collapsed;
+        OutputExtension.Text = Container.SelectedIndex == 0 ? ".mkv" : ".mp4";
         UpdateCompatibility(false);
     }
     private void UpdateCompatibility(bool defaults)
@@ -122,7 +125,7 @@ public partial class MainWindow : Window
         if (media == null) throw new IOException("请先选择视频。");
         if (!int.TryParse(FontSizeBox.Text, out var size) || size < 6 || size > 200) throw new IOException("字号范围为 6–200。");
         if (!double.TryParse(Position.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var pos) || pos < 0 || pos >= media.Duration) throw new IOException("时间点需在视频时长范围内，以秒为单位。");
-        return new(media, (Operation)Mode.SelectedIndex, Container.SelectedIndex == 0 ? "mkv" : "mp4", Path.GetFullPath(Destination.Text), media.Tracks.Where(t => t.Selected).ToArray(), subtitles.Where(s => s.Selected).ToArray(), fonts.ToArray(), BurnSubtitle.SelectedItem, Audio.SelectedItem as MediaTrack, FontName.Text, size, Alignment.SelectedIndex switch { 1 => 8, 2 => 5, _ => 2 }, pos);
+        return new(media, (Operation)Mode.SelectedIndex, Container.SelectedIndex == 0 ? "mkv" : "mp4", Path.GetFullPath(Destination.Text), media.Tracks.Where(t => t.Selected).ToArray(), subtitles.Where(s => s.Selected).ToArray(), fonts.ToArray(), BurnSubtitle.SelectedItem, Audio.SelectedItem as MediaTrack, FontName.Text, size, Alignment.SelectedIndex switch { 1 => 8, 2 => 5, _ => 2 }, pos) { OutputName = OutputName.Text };
     }
     private async Task Process(string kind)
     {
@@ -130,7 +133,7 @@ public partial class MainWindow : Window
         try
         {
             var job = Snapshot(); JobRunner.Validate(job); SavePreferences();
-            if (kind == "full" && MessageBox.Show(this, JobRunner.Describe(job) + "\n\n输出位置：" + job.Directory + "\n将另存为新文件，继续处理？", "执行前检查", MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK) return;
+            if (kind == "full" && MessageBox.Show(this, JobRunner.Describe(job) + "\n\n输出文件：" + Path.Combine(job.Directory, JobRunner.OutputBaseName(job) + "." + job.Container) + "\n同名时自动编号另存，继续处理？", "执行前检查", MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK) return;
             cancellation = new(); Settings.IsEnabled = false; StartButton.IsEnabled = false; BatchStartButton.IsEnabled = false; elapsed.Restart();
             var result = await new JobRunner(engine).Execute(job, kind, cancellation.Token, (phase, p) => Dispatcher.Invoke(() => { Progress.Value = p; Status.Text = $"{phase} · {p:F0}% · 已用时 {elapsed.Elapsed:hh\\:mm\\:ss}"; }));
             Status.Text = "完成 · " + result;
@@ -190,7 +193,7 @@ public partial class MainWindow : Window
     private void ClearCompleted(object sender, RoutedEventArgs e) { foreach (var item in queue.Where(x => x.Finished).ToArray()) queue.Remove(item); }
     private void InspectQueue(object sender, RoutedEventArgs e)
     {
-        if (Queue.SelectedItem is QueueEntry { Job: { } job }) ShowText("队列任务设置", job.Media.Path + "\n\n" + JobRunner.Describe(job) + "\n\n输出位置：" + job.Directory);
+        if (Queue.SelectedItem is QueueEntry { Job: { } job }) ShowText("队列任务设置", job.Media.Path + "\n\n" + JobRunner.Describe(job) + "\n\n输出文件：" + Path.Combine(job.Directory, JobRunner.OutputBaseName(job) + "." + job.Container));
     }
     private async void StartBatch(object sender, RoutedEventArgs e)
     {
@@ -198,7 +201,7 @@ public partial class MainWindow : Window
         var pending = queue.Where(x => x.Job != null && !x.Finished).ToArray();
         if (pending.Length == 0) { Status.Text = "请先添加可执行的队列任务。"; return; }
         if (MessageBox.Show(this, $"将依次处理 {pending.Length} 个任务。失败后继续下一个；取消会停止整个队列。已完成的任务不会重复执行。\n\n" +
-            string.Join("\n", pending.Take(15).Select(x => Path.GetFileName(x.Source) + " · " + x.OperationName + " → " + x.Destination)) +
+            string.Join("\n", pending.Take(15).Select(x => Path.GetFileName(x.Source) + " · " + x.OperationName + " → " + Path.Combine(x.Destination, x.OutputFileName))) +
             (pending.Length > 15 ? $"\n……另有 {pending.Length - 15} 个任务，请在队列中核对。" : "") +
             "\n\n字幕烧录会重新编码视频。每个任务使用加入队列时的设置，可通过“查看任务设置”核对。", "批量执行前检查", MessageBoxButton.OKCancel) != MessageBoxResult.OK) return;
         cancellation = new(); Settings.IsEnabled = false; StartButton.IsEnabled = false; BatchStartButton.IsEnabled = false; elapsed.Restart();
@@ -225,13 +228,30 @@ public partial class MainWindow : Window
     private void SaveLog(object sender, RoutedEventArgs e) { var d = new SaveFileDialog { FileName = "字幕工坊日志.txt", Filter = "文本|*.txt" }; if (d.ShowDialog() == true) { try { File.WriteAllText(d.FileName, engine.Log + errorLog); Status.Text = "日志已保存。"; } catch (Exception ex) { Failure(ex); } } }
     private void ChooseOutput(object sender, RoutedEventArgs e)
     {
-        var dialog = new OpenFolderDialog { Title = "选择视频输出文件夹" };
-        if (Directory.Exists(Destination.Text)) dialog.InitialDirectory = Destination.Text;
-        if (dialog.ShowDialog(this) == true)
+        try
         {
-            Destination.Text = dialog.FolderName;
-            Status.Text = "输出位置已设为 " + dialog.FolderName;
+            var extension = Container.SelectedIndex == 0 ? "mkv" : "mp4";
+            var name = string.IsNullOrWhiteSpace(OutputName.Text)
+                ? (media == null ? "video" : Path.GetFileNameWithoutExtension(media.Path)) + "_output"
+                : OutputName.Text;
+            var dialog = new SaveFileDialog
+            {
+                Title = "选择输出位置和文件名",
+                Filter = $"{extension.ToUpperInvariant()} 视频|*.{extension}",
+                DefaultExt = "." + extension,
+                FileName = name + "." + extension,
+                AddExtension = true,
+                OverwritePrompt = false
+            };
+            if (Directory.Exists(Destination.Text)) dialog.InitialDirectory = Destination.Text;
+            if (dialog.ShowDialog(this) == true)
+            {
+                Destination.Text = Path.GetDirectoryName(dialog.FileName)!;
+                OutputName.Text = Path.GetFileNameWithoutExtension(dialog.FileName);
+                Status.Text = "输出文件已设为 " + dialog.FileName + "，同名时自动编号。";
+            }
         }
+        catch (Exception ex) { Failure(ex); }
     }
     private void OpenOutput(object sender, RoutedEventArgs e) { try { if (Directory.Exists(Destination.Text)) System.Diagnostics.Process.Start(new ProcessStartInfo("explorer.exe") { ArgumentList = { Path.GetFullPath(Destination.Text) }, UseShellExecute = true }); } catch (Exception ex) { Failure(ex); } }
     private void ShowText(string title, string text) => new Window { Title = title, Owner = this, Width = 850, Height = 600, Content = new TextBox { Text = text, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(16) } }.Show();

@@ -8,10 +8,29 @@ namespace SubtitleStudio;
 public enum Operation { Remux, Mux, Burn }
 public sealed record Job(MediaInfo Media, Operation Operation, string Container, string Directory,
     IReadOnlyList<MediaTrack> Tracks, IReadOnlyList<SubtitleSource> Subtitles, IReadOnlyList<string> Fonts,
-    object? BurnSubtitle, MediaTrack? Audio, string Font, int FontSize, int Alignment, double Position);
+    object? BurnSubtitle, MediaTrack? Audio, string Font, int FontSize, int Alignment, double Position)
+{
+    public string OutputName { get; init; } = "";
+}
 
 public sealed class JobRunner(MediaEngine engine)
 {
+    public static string OutputBaseName(Job job)
+    {
+        var name = string.IsNullOrWhiteSpace(job.OutputName)
+            ? Path.GetFileNameWithoutExtension(job.Media.Path) + "_output"
+            : job.OutputName;
+        if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || name.EndsWith('.') || name.EndsWith(' '))
+            throw new IOException("输出文件名包含无效字符，或以空格、句点结尾。请只填写文件名，不要填写路径。");
+        var reserved = name.Split('.')[0].ToUpperInvariant();
+        if (reserved is "CON" or "PRN" or "AUX" or "NUL" ||
+            (reserved.Length == 4 && (reserved.StartsWith("COM") || reserved.StartsWith("LPT")) && "123456789¹²³".Contains(reserved[3])))
+            throw new IOException("输出文件名是 Windows 保留名称，请换一个名称。");
+        if (name.Length + job.Container.Length + 1 > 255)
+            throw new IOException("输出文件名过长，请缩短名称。");
+        return name;
+    }
+
     public static string Describe(Job j) => j.Operation == Operation.Burn
         ? $"视频重新编码：H.264 / CRF 18 / slow；保留分辨率和帧时间。\n音频：{(j.Audio == null ? "无音轨" : j.Audio + (j.Audio.Codec == "aac" ? " · 直接复制" : " · 转换为 AAC 320 kbps"))}\n字幕：{j.BurnSubtitle}"
         : "音视频直接复制；最终保留轨道：\n" + string.Join("\n", j.Tracks) +
@@ -19,6 +38,7 @@ public sealed class JobRunner(MediaEngine engine)
 
     public static void Validate(Job j)
     {
+        _ = OutputBaseName(j);
         if (!j.Tracks.Any(t => t.Type == "video")) throw new IOException("至少保留一条视频轨道。");
         if (j.Operation == Operation.Burn && j.Tracks.Count(t => t.Type == "video") != 1) throw new IOException("烧录请选择且仅选择一条视频轨道。");
         if (j.Operation == Operation.Burn)
@@ -200,7 +220,7 @@ public sealed class JobRunner(MediaEngine engine)
                 }
             }
             token.ThrowIfCancellationRequested();
-            var stem = Path.Combine(j.Directory, Path.GetFileNameWithoutExtension(j.Media.Path) + (kind == "preview" ? "_预览" : kind == "sample" ? "_10秒试输出" : "_输出"));
+            var stem = Path.Combine(j.Directory, OutputBaseName(j) + (kind == "preview" ? "_预览" : kind == "sample" ? "_10秒试输出" : ""));
             for (int n = 0; ; n++)
             {
                 var destination = stem + (n == 0 ? "" : "_" + n) + "." + extension;

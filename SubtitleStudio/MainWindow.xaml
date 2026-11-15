@@ -3,10 +3,15 @@
  <DockPanel Margin="24">
   <StackPanel DockPanel.Dock="Top"><TextBlock Text="字幕工坊" FontSize="28" FontWeight="SemiBold"/><TextBlock Text="本地处理 · 无损换封装 · 字幕内封 · 高画质烧录" Foreground="#566174" Margin="0,6,0,14"/></StackPanel>
   <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
-   <DockPanel Margin="0,0,0,12" IsEnabled="{Binding IsEnabled, ElementName=Settings}">
+   <DockPanel Margin="0,0,0,8" IsEnabled="{Binding IsEnabled, ElementName=Settings}">
     <TextBlock DockPanel.Dock="Left" Text="输出位置" VerticalAlignment="Center" Margin="0,0,12,0"/>
-    <Button DockPanel.Dock="Right" Content="选择文件夹…" Click="ChooseOutput" Margin="12,0,0,0"/>
+    <Button DockPanel.Dock="Right" Content="选择位置和文件名…" Click="ChooseOutput" Margin="12,0,0,0"/>
     <TextBox Name="Destination" VerticalContentAlignment="Center" ToolTip="转换、内封、烧录及预览文件的保存文件夹，可直接输入路径"/>
+   </DockPanel>
+   <DockPanel Margin="0,0,0,12" IsEnabled="{Binding IsEnabled, ElementName=Settings}">
+    <TextBlock DockPanel.Dock="Left" Text="输出文件名" VerticalAlignment="Center" Margin="0,0,12,0"/>
+    <TextBlock Name="OutputExtension" DockPanel.Dock="Right" Text=".mkv" VerticalAlignment="Center" Margin="8,0,0,0"/>
+    <TextBox Name="OutputName" VerticalContentAlignment="Center" ToolTip="填写不含扩展名的文件名，留空使用原视频名_output。同名文件会自动编号。"/>
    </DockPanel>
    <ProgressBar Name="Progress" Height="7" Maximum="100"/><TextBlock Name="Status" Text="拖入视频开始；多个视频将加入批量队列" Margin="0,8" TextWrapping="Wrap" MaxHeight="65"/><WrapPanel><Button Name="StartButton" Content="检查并开始处理" Click="Start"/><Button Name="BatchStartButton" Content="开始队列 / 重试未完成" Click="StartBatch"/><Button Content="取消" Click="Cancel"/><Button Content="导出技术日志" Click="SaveLog"/><Button Content="打开输出目录" Click="OpenOutput"/></WrapPanel></StackPanel>
   <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Name="Settings">
@@ -15,12 +20,12 @@
    <TextBlock Name="MediaSummary" Text="支持 MKV / MP4，添加字幕和字体也可以直接拖入窗口。" TextWrapping="Wrap" Margin="0,0,0,8"/>
    <TextBlock Text="源文件轨道与附件（勾选保留，可编辑名称、语言及默认标记）" FontWeight="SemiBold"/>
    <DataGrid Name="Tracks" Height="170" Margin="0,8"><DataGrid.Columns><DataGridCheckBoxColumn Header="保留" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}"/><DataGridTextColumn Header="#" Binding="{Binding Index}" IsReadOnly="True"/><DataGridTextColumn Header="类型" Binding="{Binding Type}" IsReadOnly="True"/><DataGridTextColumn Header="编码" Binding="{Binding Codec}" IsReadOnly="True"/><DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="130"/><DataGridTextColumn Header="语言" Binding="{Binding Language}" Width="65"/><DataGridCheckBoxColumn Header="默认" Binding="{Binding Default, UpdateSourceTrigger=PropertyChanged}"/><DataGridTextColumn Header="兼容性" Binding="{Binding Compatibility}" IsReadOnly="True" Width="*"/></DataGrid.Columns></DataGrid>
-   <Expander Header="外部字幕与字体" IsExpanded="True"><StackPanel>
+   <Expander Name="SubtitlePanel" Header="外部字幕与字体" IsExpanded="True" Visibility="Collapsed"><StackPanel>
     <WrapPanel><Button Content="添加 ASS / SRT" Click="ChooseSubtitle"/><Button Content="移除所选字幕" Click="RemoveSubtitle"/><Button Content="检查文字及字体" Click="InspectSubtitle"/><Button Content="添加 TTF / OTF" Click="ChooseFonts"/><Button Content="清空新增字体" Click="ClearFonts"/></WrapPanel>
     <DataGrid Name="Subtitles" Height="125" SelectionChanged="SubtitlesChanged"><DataGrid.Columns><DataGridCheckBoxColumn Header="加入" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}"/><DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="160"/><DataGridTextColumn Header="语言" Binding="{Binding Language}" Width="70"/><DataGridCheckBoxColumn Header="默认" Binding="{Binding Default, UpdateSourceTrigger=PropertyChanged}"/><DataGridTemplateColumn Header="文字编码" Width="110"><DataGridTemplateColumn.CellTemplate><DataTemplate><ComboBox SelectedValue="{Binding Encoding, UpdateSourceTrigger=PropertyChanged}" SelectedValuePath="Content"><ComboBoxItem Content="自动"/><ComboBoxItem Content="GB18030"/></ComboBox></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn><DataGridTextColumn Header="文件" Binding="{Binding Path}" IsReadOnly="True" Width="*"/></DataGrid.Columns></DataGrid>
     <TextBlock Name="FontStatus" Text="未添加字体附件" TextWrapping="Wrap" Margin="0,6"/>
    </StackPanel></Expander>
-   <GroupBox Name="BurnPanel" Header="烧录、画面预览与 10 秒试输出" Margin="0,10"><StackPanel Margin="10">
+   <GroupBox Name="BurnPanel" Header="烧录、画面预览与 10 秒试输出" Margin="0,10" Visibility="Collapsed"><StackPanel Margin="10">
     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="70"/><ColumnDefinition/><ColumnDefinition Width="70"/><ColumnDefinition/></Grid.ColumnDefinitions><TextBlock Text="字幕" VerticalAlignment="Center"/><ComboBox Name="BurnSubtitle" Grid.Column="1"/><TextBlock Grid.Column="2" Text="音轨" Margin="12,0" VerticalAlignment="Center"/><ComboBox Name="Audio" Grid.Column="3"/></Grid>
     <WrapPanel Margin="0,8"><TextBlock Text="SRT 字体" VerticalAlignment="Center"/><TextBox Name="FontName" Text="Microsoft YaHei" Width="160" Margin="8,0"/><TextBlock Text="字号" VerticalAlignment="Center"/><TextBox Name="FontSizeBox" Text="24" Width="50" Margin="8,0"/><ComboBox Name="Alignment" SelectedIndex="0" Width="100"><ComboBoxItem Content="底部居中"/><ComboBoxItem Content="顶部居中"/><ComboBoxItem Content="画面居中"/></ComboBox><TextBlock Text="时间点（秒）" VerticalAlignment="Center" Margin="12,0,0,0"/><TextBox Name="Position" Text="0" Width="75" Margin="8,0"/></WrapPanel>
     <TextBlock Text="ASS 使用脚本原有样式。SDR · H.264 · CRF 18 · slow；AAC 音轨直接复制。" Foreground="#566174"/><WrapPanel><Button Content="预览画面" Click="Preview"/><Button Content="生成 10 秒试输出" Click="Sample"/></WrapPanel>
@@ -32,6 +37,7 @@
      <DataGridTextColumn Header="视频" Binding="{Binding Source}" Width="2*"/>
      <DataGridTextColumn Header="功能" Binding="{Binding OperationName}" Width="100"/>
      <DataGridTextColumn Header="输出位置" Binding="{Binding Destination}" Width="*"/>
+     <DataGridTextColumn Header="输出文件" Binding="{Binding OutputFileName}" Width="*"/>
      <DataGridTextColumn Header="状态 / 结果" Binding="{Binding State}" Width="2*"/>
     </DataGrid.Columns></DataGrid>
     <TextBlock Text="队列仅保留在本次运行中。加入后设置独立保存；更改界面设置不会修改已加入任务。" TextWrapping="Wrap" Margin="0,6"/>

@@ -28,6 +28,8 @@ The application interface is currently in Chinese. Chinese button labels below h
 3. Check the subtitle text and fonts, and choose an output folder.
 4. For burn-in, preview a frame and create a short sample before starting the full job.
 
+Edit the output base name beside the output folder, or click **选择位置和文件名…** (Choose location and file name) to set both. The default is `original_name_output`, with automatic numbering for conflicts. Individually configured queue jobs keep their custom names. Batch import uses each video’s original name. The external subtitle and font panel appears in the muxing and burn-in modes.
+
 See the [user guide](docs/使用说明.md) and [acceptance test report](docs/验收报告.md), both currently in Chinese.
 
 ### Remembered settings and batch processing
