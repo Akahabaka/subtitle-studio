@@ -33,10 +33,25 @@ public sealed class JobRunner(MediaEngine engine)
         return name;
     }
 
-    public static string Describe(Job j) => j.Operation == Operation.Burn
+    public static string DescribeFiles(Job j)
+    {
+        string Subtitle(object? source) => source switch
+        {
+            SubtitleSource s => "外部字幕：" + s.Path,
+            MediaTrack t => "内嵌字幕：" + j.Media.Path + " · 轨道 #" + t.Index + " · " + t.Name,
+            _ => "无字幕"
+        };
+        var used = j.Operation == Operation.Burn ? new[] { Subtitle(j.BurnSubtitle) }
+            : j.Tracks.Where(t => t.Type == "subtitle").Select(t => Subtitle(t))
+                .Concat(j.Operation == Operation.Mux ? j.Subtitles.Select(s => Subtitle(s)) : []);
+        return "源视频：" + j.Media.Path + "\n实际字幕：\n" + (used.Any() ? string.Join("\n", used) : "无") +
+            "\n输出文件：" + Path.Combine(j.Directory, OutputBaseName(j) + "." + j.Container) + "\n（同名时自动编号另存）";
+    }
+
+    public static string Describe(Job j) => DescribeFiles(j) + "\n\n" + (j.Operation == Operation.Burn
         ? $"视频重新编码：H.264 / CRF 18 / slow；保留分辨率和帧时间。\n音频：{(j.Audio == null ? "无音轨" : j.Audio + (j.Audio.Codec == "aac" ? " · 直接复制" : " · 转换为 AAC 320 kbps"))}\n字幕：{j.BurnSubtitle}"
         : "音视频直接复制；最终保留轨道：\n" + string.Join("\n", j.Tracks) +
-          (j.Operation == Operation.Mux ? "\n新增字幕：\n" + string.Join("\n", j.Subtitles.Select(s => s.Name + " · " + s.Language)) + $"\n新增字体附件：{j.Fonts.Count}" : "");
+          (j.Operation == Operation.Mux ? "\n新增字幕：\n" + string.Join("\n", j.Subtitles.Select(s => s.Name + " · " + s.Language)) + $"\n新增字体附件：{j.Fonts.Count}" : ""));
 
     public static void Validate(Job j)
     {

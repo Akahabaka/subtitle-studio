@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -43,6 +43,15 @@ public partial class MainWindow : Window
             Status.Text = "正在读取媒体轨道…";
             var candidate = await engine.Probe(path, cancellation.Token);
             if (!candidate.Tracks.Any(t => t.Type == "video")) throw new IOException("文件中没有视频轨道。");
+            if (media != null && !string.Equals(Path.GetFullPath(media.Path), Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase))
+            {
+                var reuse = subtitles.Count > 0 && MessageBox.Show(this,
+                    "即将切换视频：\n" + path + "\n\n是否沿用上一视频的外部字幕？\n" +
+                    string.Join("\n", subtitles.Select(s => s.Path)) + "\n\n选择“否”将清空外部字幕，请为新视频重新添加。",
+                    "确认字幕归属", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes;
+                if (!reuse) subtitles.Clear();
+                if (!reuse || BurnSubtitle.SelectedItem is not SubtitleSource) BurnSubtitle.SelectedItem = null;
+            }
             media = candidate; Video.Text = path; Tracks.ItemsSource = media.Tracks;
             OutputName.Text = Path.GetFileNameWithoutExtension(path) + "_output";
             Position.Text = "0";
@@ -135,7 +144,7 @@ public partial class MainWindow : Window
         try
         {
             var job = Snapshot(kind); JobRunner.Validate(job); SavePreferences();
-            if (kind == "full" && MessageBox.Show(this, JobRunner.Describe(job) + "\n\n输出文件：" + Path.Combine(job.Directory, JobRunner.OutputBaseName(job) + "." + job.Container) + "\n同名时自动编号另存，继续处理？", "执行前检查", MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK) return;
+            if (kind == "full" && MessageBox.Show(this, JobRunner.Describe(job) + "\n同名时自动编号另存，继续处理？", "执行前检查", MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK) return;
             cancellation = new(); Settings.IsEnabled = false; StartButton.IsEnabled = false; BatchStartButton.IsEnabled = false; elapsed.Restart();
             var result = await new JobRunner(engine).Execute(job, kind, cancellation.Token, (phase, p) => Dispatcher.Invoke(() => { Progress.Value = p; Status.Text = $"{phase} · {p:F0}% · 已用时 {elapsed.Elapsed:hh\\:mm\\:ss}"; }));
             Status.Text = "完成 · " + result;
@@ -195,7 +204,7 @@ public partial class MainWindow : Window
     private void ClearCompleted(object sender, RoutedEventArgs e) { foreach (var item in queue.Where(x => x.Finished).ToArray()) queue.Remove(item); }
     private void InspectQueue(object sender, RoutedEventArgs e)
     {
-        if (Queue.SelectedItem is QueueEntry { Job: { } job }) ShowText("队列任务设置", job.Media.Path + "\n\n" + JobRunner.Describe(job) + "\n\n输出文件：" + Path.Combine(job.Directory, JobRunner.OutputBaseName(job) + "." + job.Container));
+        if (Queue.SelectedItem is QueueEntry { Job: { } job }) ShowText("队列任务设置", JobRunner.Describe(job));
     }
     private async void StartBatch(object sender, RoutedEventArgs e)
     {
@@ -203,7 +212,7 @@ public partial class MainWindow : Window
         var pending = queue.Where(x => x.Job != null && !x.Finished).ToArray();
         if (pending.Length == 0) { Status.Text = "请先添加可执行的队列任务。"; return; }
         if (MessageBox.Show(this, $"将依次处理 {pending.Length} 个任务。失败后继续下一个；取消会停止整个队列。已完成的任务不会重复执行。\n\n" +
-            string.Join("\n", pending.Take(15).Select(x => Path.GetFileName(x.Source) + " · " + x.OperationName + " → " + Path.Combine(x.Destination, x.OutputFileName))) +
+            string.Join("\n", pending.Take(15).Select(x => JobRunner.DescribeFiles(x.Job!))) +
             (pending.Length > 15 ? $"\n……另有 {pending.Length - 15} 个任务，请在队列中核对。" : "") +
             "\n\n字幕烧录会重新编码视频。每个任务使用加入队列时的设置，可通过“查看任务设置”核对。", "批量执行前检查", MessageBoxButton.OKCancel) != MessageBoxResult.OK) return;
         cancellation = new(); Settings.IsEnabled = false; StartButton.IsEnabled = false; BatchStartButton.IsEnabled = false; elapsed.Restart();
