@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -55,7 +55,7 @@ public partial class MainWindow : Window
             media = candidate; Video.Text = path; Tracks.ItemsSource = media.Tracks;
             OutputName.Text = Path.GetFileNameWithoutExtension(path) + "_output";
             Position.Text = "0";
-            MediaSummary.Text = $"时长 {TimeSpan.FromSeconds(media.Duration):hh\\:mm\\:ss} · {media.Tracks.Count} 条轨道 / 附件 · {(media.IsHdr ? "HDR / HLG / 杜比视界，不能烧录" : "SDR")}";
+            MediaSummary.Text = $"时长 {TimeSpan.FromSeconds(media.Duration):hh\\:mm\\:ss} · {media.Tracks.Count} 条轨道 / 附件 · {(media.IsHdr ? "HDR / HLG / 杜比视界，烧录需确认风险" : "SDR")}";
             Audio.ItemsSource = media.Tracks.Where(t => t.Type == "audio").ToArray();
             Audio.SelectedItem = media.Tracks.FirstOrDefault(t => t.Type == "audio" && t.Default) ?? media.Tracks.FirstOrDefault(t => t.Type == "audio");
             RefreshSubtitles(); UpdateCompatibility(true); Status.Text = "已读取，可选择保留轨道和添加字幕。";
@@ -143,7 +143,10 @@ public partial class MainWindow : Window
         if (cancellation != null) return;
         try
         {
-            var job = Snapshot(kind); JobRunner.Validate(job); SavePreferences();
+            var job = Snapshot(kind); JobRunner.Validate(job, requireHdrConfirmation: false);
+            if (!ConfirmHdrBurn([job])) return;
+            job = job with { HdrRiskAccepted = JobRunner.IsHdrBurn(job) };
+            SavePreferences();
             if (kind == "full" && MessageBox.Show(this, JobRunner.Describe(job) + "\n同名时自动编号另存，继续处理？", "执行前检查", MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK) return;
             cancellation = new(); Settings.IsEnabled = false; StartButton.IsEnabled = false; BatchStartButton.IsEnabled = false; elapsed.Restart();
             var result = await new JobRunner(engine).Execute(job, kind, cancellation.Token, (phase, p) => Dispatcher.Invoke(() => { Progress.Value = p; Status.Text = $"{phase} · {p:F0}% · 已用时 {elapsed.Elapsed:hh\\:mm\\:ss}"; }));
@@ -162,7 +165,7 @@ public partial class MainWindow : Window
     private void AddCurrent(object sender, RoutedEventArgs e)
     {
         if (cancellation != null) return;
-        try { var job = Snapshot(); JobRunner.Validate(job); queue.Add(new(job.Media.Path, BatchQueue.Freeze(job))); SavePreferences(); Status.Text = "已将当前配置加入队列，可继续配置下一个视频。"; }
+        try { var job = Snapshot(); JobRunner.Validate(job, requireHdrConfirmation: false); queue.Add(new(job.Media.Path, BatchQueue.Freeze(job))); SavePreferences(); Status.Text = "已将当前配置加入队列，可继续配置下一个视频。"; }
         catch (Exception ex) { Failure(ex); }
     }
     private async void ChooseBatch(object sender, RoutedEventArgs e)
@@ -215,6 +218,7 @@ public partial class MainWindow : Window
             string.Join("\n", pending.Take(15).Select(x => JobRunner.DescribeFiles(x.Job!))) +
             (pending.Length > 15 ? $"\n……另有 {pending.Length - 15} 个任务，请在队列中核对。" : "") +
             "\n\n字幕烧录会重新编码视频。每个任务使用加入队列时的设置，可通过“查看任务设置”核对。", "批量执行前检查", MessageBoxButton.OKCancel) != MessageBoxResult.OK) return;
+        if (!ConfirmHdrBurn(pending.Select(entry => entry.Job!))) return;
         cancellation = new(); Settings.IsEnabled = false; StartButton.IsEnabled = false; BatchStartButton.IsEnabled = false; elapsed.Restart();
         try
         {
@@ -222,7 +226,7 @@ public partial class MainWindow : Window
             await BatchQueue.Run(pending, async (job, token) =>
             {
                 number++;
-                try { return await new JobRunner(engine).Execute(job, "full", token, (phase, progress) => Dispatcher.Invoke(() =>
+                try { return await new JobRunner(engine).Execute(job with { HdrRiskAccepted = JobRunner.IsHdrBurn(job) }, "full", token, (phase, progress) => Dispatcher.Invoke(() =>
                     { Progress.Value = progress; Status.Text = $"队列 {number}/{pending.Length} · {Path.GetFileName(job.Media.Path)} · {phase} {progress:F0}% · {elapsed.Elapsed:hh\\:mm\\:ss}"; })); }
                 catch (Exception ex) { errorLog += job.Media.Path + "\n" + ex + "\n"; throw; }
             }, cancellation.Token);
@@ -230,6 +234,15 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) { Failure(ex); }
         finally { elapsed.Stop(); cancellation.Dispose(); cancellation = null; Settings.IsEnabled = true; StartButton.IsEnabled = true; BatchStartButton.IsEnabled = true; }
+    }
+    private bool ConfirmHdrBurn(IEnumerable<Job> jobs)
+    {
+        var hdrJobs = jobs.Where(JobRunner.IsHdrBurn).ToArray();
+        if (hdrJobs.Length == 0) return true;
+        var files = string.Join("\n", hdrJobs.Take(15).Select(job => Path.GetFileName(job.Media.Path)));
+        if (hdrJobs.Length > 15) files += $"\n……共 {hdrJobs.Length} 个 HDR 任务";
+        return MessageBox.Show(this, files + "\n\n" + JobRunner.HdrWarning, "HDR 烧录风险确认",
+            MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;
     }
     private void Failure(Exception ex) { Status.Text = ex is OperationCanceledException ? "已取消，可重新开始。" : "失败 · " + ex.Message; errorLog += ex + "\n"; }
     private async void Start(object sender, RoutedEventArgs e) => await Process("full");

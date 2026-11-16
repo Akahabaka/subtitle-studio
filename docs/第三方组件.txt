@@ -1,4 +1,4 @@
-字幕工坊 0.9.0 验收候选版 / Windows 11 x64
+字幕工坊 1.0.0 正式版 / Windows 11 x64
 
 应用：C# / .NET 10 / WPF；源码随交付提供，使用 MIT 许可证。
 运行库：Microsoft.NETCore.App 10.0.15、Microsoft.WindowsDesktop.App 10.0.15，自包含发布。

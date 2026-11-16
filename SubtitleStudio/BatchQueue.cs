@@ -49,7 +49,7 @@ public static class BatchQueue
         var job = new Job(media, operation, operation == Operation.Mux ? "mkv" : operation == Operation.Burn ? "mp4" : container,
             directory, media.Tracks.ToArray(), operation == Operation.Mux ? subs : [], fonts, burn,
             media.Tracks.FirstOrDefault(t => t.Type == "audio" && t.Default) ?? media.Tracks.FirstOrDefault(t => t.Type == "audio"), font, size, alignment, 0);
-        JobRunner.Validate(job);
+        JobRunner.Validate(job, requireHdrConfirmation: false);
         return Freeze(job);
     }
 

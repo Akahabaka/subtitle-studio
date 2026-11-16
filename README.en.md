@@ -5,7 +5,7 @@
 A desktop tool with a Chinese interface for remuxing videos and working with subtitles on Windows 11 x64. All media processing happens locally. Configure individual videos or process multiple videos in a sequential queue.
 ~~Here to help clip translators and video creators! Thank you, ChatGPT!~~
 
-> This is a release candidate for acceptance testing. The main processing workflows and dedicated subtitle burn-in tests have passed. Testing on a clean Windows 11 installation and under actual disk exhaustion remains incomplete. Preview a frame and generate a 10-second sample before a full burn-in.
+> The current stable release is 1.0.0. The main processing workflows and dedicated subtitle burn-in tests have passed. Testing on a clean Windows 11 installation and under actual disk exhaustion remains incomplete. Preview a frame and generate a 10-second sample before a full burn-in.
 
 ## Three modes
 
@@ -46,7 +46,7 @@ The application saves the mode, output format, output folder, and SRT font, size
 
 - **Remuxing preserves encoded video and audio data.** Containers, headers, and timeline origins may change. AAC priming and end trimming may be interpreted differently by containers and players; whole-file hashes cannot establish audio/video quality equivalence.
 - **Use MKV to mux ASS/SRT without converting them.** MP4 cannot preserve these subtitles and font attachments as-is. Deselect incompatible tracks or switch to MKV. MP4 `mov_text` subtitles are not silently converted when remuxing to MKV either.
-- **Burn-in re-encodes the video.** Subtitles become part of the image. Source resolution and frame timing are preserved. This version supports SDR burn-in only; HDR, HLG, and Dolby Vision inputs are blocked from burn-in.
+- **Burn-in re-encodes the video.** Subtitles become part of the image. Source resolution and frame timing are preserved. HDR, HLG, and Dolby Vision inputs show a warning before previews, samples, and burn-in. Confirm to continue. H.264 8-bit output may lose HDR information, dynamic metadata, and color precision, and brightness or colors may change. HDR-to-SDR tone mapping is currently unavailable. Batch jobs use one confirmation, with a new warning on retry.
 - ASS playback depends on the player's support for styles and fonts. A font installed on the computer is not necessarily attached to the MKV file.
 - The batch queue processes local videos one at a time. A subtitle editor and automatic Bilibili uploads are not included.
 

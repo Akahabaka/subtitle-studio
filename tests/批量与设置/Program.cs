@@ -27,13 +27,18 @@ foreach (var invalidName in new[] { "../escape", "bad:name", "CON", "LPT1.txt", 
 Console.WriteLine("PASS invalid output names blocked");
 media.Tracks[0].Name = "changed after enqueue";
 Check(remux.Media.Tracks[0].Name != media.Tracks[0].Name && remux.Tracks.All(t => remux.Media.Tracks.Contains(t)), "snapshot isolation and track identity");
-try { BatchQueue.Create(media with { IsHdr = true }, Operation.Burn, "mp4", output, "Microsoft YaHei", 24, 2, []); throw new Exception("HDR accepted"); } catch (IOException ex) { Check(ex.Message.Contains("HDR"), "HDR batch burning blocked"); }
+var hdrJob = BatchQueue.Create(media with { IsHdr = true }, Operation.Burn, "mp4", output, "Microsoft YaHei", 24, 2, []);
+Check(JobRunner.IsHdrBurn(hdrJob) && !hdrJob.HdrRiskAccepted, "HDR queue retains confirmation requirement");
+try { JobRunner.Validate(hdrJob); throw new Exception("Unconfirmed HDR accepted"); }
+catch (IOException ex) { Check(ex.Message.Contains("HDR"), "unconfirmed HDR execution blocked"); }
+JobRunner.Validate(hdrJob with { HdrRiskAccepted = true });
+Check(!JobRunner.IsHdrBurn(remux with { Media = media with { IsHdr = true } }), "HDR remux needs no burn warning");
 var invalidTracks = new List<MediaTrack>(media.Tracks) { new() { Index = 99, Type = "subtitle", Codec = "ass" } };
 try { BatchQueue.Create(media with { Tracks = invalidTracks }, Operation.Remux, "mp4", output, "Microsoft YaHei", 24, 2, []); throw new Exception("Incompatible tracks accepted"); } catch (IOException) { Console.WriteLine("PASS incompatible tracks blocked"); }
 File.Copy(Path.Combine(fixtures, "中文字幕.srt"), Path.ChangeExtension(input, ".srt"), true);
 try { Make(Operation.Burn); throw new Exception("Ambiguous subtitles accepted"); } catch (IOException) { Console.WriteLine("PASS ambiguous subtitles blocked"); }
 Check(Make(Operation.Mux).Subtitles.Count == 2, "mux matches both subtitles");
-try { BatchQueue.Create(media with { IsHdr = true }, Operation.Burn, "mp4", output, "Microsoft YaHei", 24, 2, []); throw new Exception("HDR accepted"); } catch (IOException) { Console.WriteLine("PASS unsafe batch rejected"); }
+try { BatchQueue.Create(media with { IsHdr = true }, Operation.Burn, "mp4", output, "Microsoft YaHei", 24, 2, []); throw new Exception("Ambiguous HDR subtitles accepted"); } catch (IOException) { Console.WriteLine("PASS ambiguous HDR subtitles rejected"); }
 var broken = remux with { Media = remux.Media with { Path = Path.Combine(output, "missing.mp4") } };
 var entries = new[] { new QueueEntry("broken", broken), new QueueEntry("remux", remux), new QueueEntry("mux", mux), new QueueEntry("burn", burn) };
 var runner = new JobRunner(engine);

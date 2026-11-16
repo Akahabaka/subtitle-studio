@@ -11,6 +11,10 @@ if (samples.Length == 0)
 {
     throw new IOException("测试目录中没有 dovi-*.mp4 样片。");
 }
+var outputDirectory = Path.Combine(sampleDirectory, "dovi-output");
+Directory.CreateDirectory(outputDirectory);
+var subtitlePath = Path.Combine(outputDirectory, "test.srt");
+await File.WriteAllTextAsync(subtitlePath, "1\n00:00:00,000 --> 00:00:05,000\nHDR 字幕测试\n");
 foreach (var sample in samples)
 {
     var media = await engine.Probe(sample, CancellationToken.None);
@@ -18,15 +22,21 @@ foreach (var sample in samples)
     {
         throw new Exception("未识别杜比视界文件 " + Path.GetFileName(sample));
     }
-    var job = new Job(media, Operation.Burn, "mp4", sampleDirectory,
-        [media.Tracks.First(track => track.Type == "video")], [], [], null, null, "Microsoft YaHei", 24, 2, 0);
+    var job = new Job(media, Operation.Burn, "mp4", outputDirectory,
+        [media.Tracks.First(track => track.Type == "video")], [], [], new SubtitleSource { Path = subtitlePath }, null, "Microsoft YaHei", 24, 2, 0);
     try
     {
         JobRunner.Validate(job);
         throw new Exception("未阻止烧录 " + Path.GetFileName(sample));
     }
-    catch (IOException exception) when (exception.Message.Contains("HDR / HLG / 杜比视界"))
+    catch (IOException exception) when (exception.Message.Contains("HDR"))
     {
-        Console.WriteLine("PASS " + Path.GetFileName(sample) + " 识别并拦截 SDR 烧录");
+        Console.WriteLine("PASS " + Path.GetFileName(sample) + " 识别并要求确认烧录风险");
+    }
+    foreach (var kind in new[] { "preview", "full" })
+    {
+        var output = await new JobRunner(engine).Execute(job with { HdrRiskAccepted = true }, kind, default, (_, _) => {});
+        await engine.Run("ffmpeg", ["-v", "error", "-xerror", "-i", output, "-f", "null", "-"], default);
+        Console.WriteLine("PASS " + Path.GetFileName(sample) + " confirmed " + kind + " and strict decode");
     }
 }

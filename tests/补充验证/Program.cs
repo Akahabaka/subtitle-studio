@@ -16,7 +16,8 @@ try{
  var hlg=Path.Combine(output,"hlg.mp4");
  await e.Run("ffmpeg",["-v","error","-i",media.Path,"-t","1","-an","-vf","setparams=color_primaries=bt2020:color_trc=arib-std-b67:colorspace=bt2020nc","-c:v","libx264","-preset","ultrafast","-x264-params","colorprim=bt2020:transfer=arib-std-b67:colormatrix=bt2020nc","-y",hlg],default);
  var h=await e.Probe(hlg,default);if(!h.IsHdr)throw new Exception("HLG detection failed");
- try{JobRunner.Validate(Make() with{Media=h,Tracks=h.Tracks});throw new Exception("HLG accepted");}catch(IOException){Console.WriteLine("PASS HLG 实际媒体识别与烧录拦截");}
+ try{JobRunner.Validate(Make() with{Media=h,Tracks=h.Tracks});throw new Exception("HLG accepted");}catch(IOException){Console.WriteLine("PASS HLG 实际媒体识别与确认前拦截");}
+ JobRunner.Validate(Make() with {Media=h,Tracks=h.Tracks,HdrRiskAccepted=true});
  var before=Directory.GetFiles(output).Length;
  try{await runner.Execute(Make() with{Operation=Operation.Mux,Container="mkv",Subtitles=new[]{srt},Fonts=new[]{Path.Combine(output,"missing.ttf")}},"full",default,(_,_)=>{});throw new Exception("Engine error ignored");}catch(IOException){if(Directory.GetFiles(output).Length!=before||Directory.GetDirectories(output,".subtitle-studio-*").Any())throw new Exception("Failure cleanup failed");Console.WriteLine("PASS 引擎失败后无正式输出和临时残留");}
 }finally{File.WriteAllText(Path.Combine(output,"engine-log.txt"),e.Log);}

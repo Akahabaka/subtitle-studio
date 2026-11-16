@@ -29,7 +29,8 @@ try {
  Check(a.Length==b.Length && a.Zip(b).All(x=>Math.Abs((x.First-a[0])-(x.Second-b[0]))<0.001),"VFR frame count and relative timestamps");
  var hdr=await engine.Probe(Path.Combine(root,"fixtures","hdr.mp4"),default);
  Check(hdr.IsHdr,"HDR detected");
- try {JobRunner.Validate(Make(hdr,Operation.Burn)); throw new Exception("HDR not blocked");} catch(IOException){Console.WriteLine("PASS HDR blocked");}
+ try {JobRunner.Validate(Make(hdr,Operation.Burn)); throw new Exception("HDR not blocked");} catch(IOException){Console.WriteLine("PASS unconfirmed HDR blocked");}
+ JobRunner.Validate(Make(hdr,Operation.Burn) with { HdrRiskAccepted = true });
  Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
  var gb=Path.Combine(root,"fixtures","gb.srt"); File.WriteAllText(gb,File.ReadAllText(srt.Path),Encoding.GetEncoding(54936));
  Check(MediaEngine.ReadSubtitle(new(){Path=gb,Encoding="GB18030"}).Contains("中文字幕"),"GB18030");

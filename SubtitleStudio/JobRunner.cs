@@ -11,6 +11,7 @@ public sealed record Job(MediaInfo Media, Operation Operation, string Container,
     object? BurnSubtitle, MediaTrack? Audio, string Font, int FontSize, int Alignment, double Position)
 {
     public string OutputName { get; init; } = "";
+    public bool HdrRiskAccepted { get; init; }
 }
 
 public sealed class JobRunner(MediaEngine engine)
@@ -53,14 +54,19 @@ public sealed class JobRunner(MediaEngine engine)
         : "音视频直接复制；最终保留轨道：\n" + string.Join("\n", j.Tracks) +
           (j.Operation == Operation.Mux ? "\n新增字幕：\n" + string.Join("\n", j.Subtitles.Select(s => s.Name + " · " + s.Language)) + $"\n新增字体附件：{j.Fonts.Count}" : ""));
 
-    public static void Validate(Job j)
+    public const string HdrWarning = "检测到 HDR / HLG / 杜比视界视频。字幕烧录会重新编码为 H.264 8 位视频，可能丢失 HDR 信息、动态元数据和色彩精度，亮度与颜色可能发生变化。当前处理不进行 HDR 到 SDR 色调映射。\n\n是否接受上述风险并继续？";
+
+    public static bool IsHdrBurn(Job job) => job.Operation == Operation.Burn && job.Media.IsHdr;
+
+    public static void Validate(Job j, bool requireHdrConfirmation = true)
     {
         _ = OutputBaseName(j);
         if (!j.Tracks.Any(t => t.Type == "video")) throw new IOException("至少保留一条视频轨道。");
         if (j.Operation == Operation.Burn && j.Tracks.Count(t => t.Type == "video") != 1) throw new IOException("烧录请选择且仅选择一条视频轨道。");
         if (j.Operation == Operation.Burn)
         {
-            if (j.Media.IsHdr) throw new IOException("检测到 HDR / HLG / 杜比视界。首版仅支持 SDR 烧录，仍可使用无损换封装。");
+            if (requireHdrConfirmation && IsHdrBurn(j) && !j.HdrRiskAccepted)
+                throw new IOException("HDR 烧录需要先确认可能丢失 HDR 信息的风险。");
             if (j.BurnSubtitle == null) throw new IOException("请选择一条烧录字幕。");
             if (j.BurnSubtitle is MediaTrack t && t.Codec is not ("ass" or "ssa" or "subrip" or "mov_text")) throw new IOException("烧录仅支持 ASS、SRT 和 MP4 文本字幕。");
         }
